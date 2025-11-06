@@ -16,6 +16,7 @@ int main() {
      create a socket, it will return int handle for it
      the fd stands for file descriptor, 
      returns -1 for errors, if protocol is 0, auto choose */
+    // listen_fd is only there for incoming connections.
     int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
     /* Print a message describing the meaning of the value of errno.
 
@@ -58,4 +59,72 @@ int main() {
         return 1;
     }
 
+    std::cout << "TCP server listening on port..." << PORT << '\n';
+
+    sockaddr_in client_addr{};
+    socklen_t client_len = sizeof(client_addr);
+    /* Await a connection on socket FD.
+    When a connection arrives, open a new socket to communicate with it,
+    set *client_addr (which is *client_len bytes long) to the address 
+    of the connecting peer and *client_len to the address's actual length, 
+    and return the new socket's descriptor, or -1 for errors.
+
+    This function is a cancellation point and therefore not marked with
+    __THROW.  */
+    int client_fd = accept(
+                        listen_fd, 
+                        reinterpret_cast<sockaddr *>(&client_addr),
+                        &client_len
+                    );
+    if (client_fd < 0) {
+        perror("accept");
+        return 1;
+    }
+    // the __cp (second arg) is pointer to the binary net addr
+    // in case of AF_INET, it shld be in_addr, of client
+    // again void pointers used for flexibility
+    // client_ip is the __buf (buffer) with len -> __LEN
+    char client_ip[INET_ADDRSTRLEN];
+    // above char array is buf for single IPv4 string
+    inet_ntop(AF_INET, &client_addr.sin_addr, 
+                client_ip, sizeof(client_ip));
+    // ntohs takes a netshort -> net PORT, uint short size.
+    // abbrv for network to host short (uint16_t);
+    // conversion from net byte order to host byte order
+    std::cout   << "Client connected: " << client_ip << ":" 
+                << ntohs(client_addr.sin_port) << "\n";
+
+    const int BUF_SIZE = 1024;
+    char buf[BUF_SIZE];
+    while (true) {
+        // recieves valid addr length or -1 for errors,
+        // hence the ssize_t
+        /*client_fd is the connection to recieve from
+        the buf stores this recv value, BUF_SIZE is reduced
+        by 1 to avoid null termination overflows, flag = 0
+        means normal blocking recieve*/ 
+        ssize_t n = recv(client_fd, buf, BUF_SIZE - 1, 0);
+        if (n < 0) {
+            perror("recv");
+            break;
+        }
+        if (n == 0) {
+            std::cout << "Client disconnected\n";
+            break;
+        }
+        buf[n] = '\0';
+        std::string received(buf, n);
+        std::cout << "Received: " << received << '\n';
+
+        // Echo back:
+        ssize_t sent = send(client_fd, buf, n, 0);
+        if (sent < 0) {
+            perror("send");
+            break;
+        }
+    }
+
+    // close all PORTS once done
+    close(client_fd);
+    close(listen_fd);
 }
